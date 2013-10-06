@@ -460,7 +460,7 @@ sub rect_focus
 sub draw_text
 {
 	my ( $canvas, $string, $x, $y, $x2, $y2, $flags, $tabIndent) = @_;
-
+	print "Drawing text\n";
 	$flags     = dt::Default unless defined $flags;
 	$tabIndent = 1 if !defined( $tabIndent) || $tabIndent < 0;
 

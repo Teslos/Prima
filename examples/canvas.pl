@@ -1,6 +1,7 @@
 use strict;
 
 use Prima qw(ScrollWidget);
+use lib '/Users/toniivas/Documents/CODE/Perl/my-Prima/Prima/blib/lib';
 # A widget with two scrollbars. Contains set of objects, that know
 # how to draw themselves. The graphic objects hierarchy starts
 # from Prima::CanvasObject:: class
