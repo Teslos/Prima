@@ -321,6 +321,7 @@ my $sysData = Prima::Application-> get_system_info;
 
 sub profile_default
 {
+	print "Drawable Profile Default\n";
 	my $def = $_[ 0]-> SUPER::profile_default;
 	my %prf = (
 		color           => cl::Black,
@@ -358,6 +359,7 @@ sub profile_default
 sub profile_check_in
 {
 	my ( $self, $p, $default) = @_;
+	print "Drawable: profile_check_in \n";
 	$self-> SUPER::profile_check_in( $p, $default);
 	$p-> { font} = {} unless exists $p-> { font};
 	$p-> { font} = Prima::Drawable-> font_match( $p-> { font}, $default-> { font});
@@ -460,7 +462,6 @@ sub rect_focus
 sub draw_text
 {
 	my ( $canvas, $string, $x, $y, $x2, $y2, $flags, $tabIndent) = @_;
-	print "Drawing text\n";
 	$flags     = dt::Default unless defined $flags;
 	$tabIndent = 1 if !defined( $tabIndent) || $tabIndent < 0;
 
@@ -482,11 +483,12 @@ sub draw_text
 		(( $flags & dt::ExpandTabs    ) ? ( tw::ExpandTabs | tw::CalcTabs) : 0)
 	;
 
-	my @lines = @{$canvas-> text_wrap( $string, 
+	print "Drawing text: $string \n";
+	print "Cairo canvas \n" if $canvas-> isa('Prima::Cairo::Drawable');
+	my @lines = @{$canvas-> text_wrap( $string,  
 		( $flags & dt::NoWordWrap) ? 1000000 : $w, 
 		$twFlags, $tabIndent
 	)};
-
 	my $tildes;
 	$tildes = pop @lines if $flags & dt::DrawMnemonic;
 

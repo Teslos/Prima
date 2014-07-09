@@ -11,7 +11,8 @@ use Encode;
 use constant {
 	'PDF' => 1,
 	'PS'  => 2,
-	'SVG' => 3
+	'SVG' => 3,
+	'PNG' => 4
 };
 
 use constant M_PI => 3.14159265359;
@@ -27,6 +28,7 @@ use constant M_PI => 3.14159265359;
 
 sub profile_default
 {
+	print "CAIRO: profile_default\n";
 	my $def = $_[0]->SUPER::profile_default;
 	my %prf = (
 		copies  => 1,
@@ -52,29 +54,57 @@ sub profile_default
 	@$def{keys %prf} = values %prf;
 	return $def;
 }
+sub profile_check_in
+{
+	my ( $self, $p, $default) = @_;
+	Prima::Component::profile_check_in( $self, $p, $default);
+	$p-> { font} = {} unless exists $p-> { font};
+	$p-> { font} = Prima::Drawable-> font_match( $p-> { font}, $default-> { font}, 0);
+}
 
 sub init
 {
 	my $self = shift;
-	my $width = 200; my $height = 200;
+	print "Init CAIRO Drawable\n";
+	my $type = PS;
+	my ($width, $height) = (0,0);
 	$self->{antialias_mode} = 1;
 	$self->{format} = 'argb32';
-	$self->{surface} = Cairo::ImageSurface->create( 'argb32', $width, $height );
-	$self->{cairo} = Cairo::Context->create( $self->{surface} );
+	$width = $self->{pageSize}->[0];
+print "Width: $width\n";
 	$self->{clipRect} = [0,0,0,0];
 	$self->{resolution} = [72,72];
 	$self->{pageMargins} = [0,0,0,0];
 	$self->{pageSize}    = [0,0];
 	$self->{scale} = [1,1];
-	$self->{rotate}     = 1;
+	$self->{rotate}     = 0;
 	$self->{font}       = {};
 	$self->{useDeviceFonts} = 1;
 	$self->{grayscale}  = 0;
 	# initialize Prima::Drawable
 	my %profile = $self->SUPER::init(@_);
-	#$self->$_( $profile{$_} ) for qw( grayscale copies pageDevice useDeviceFonts 
-	#	rotate reversed useDeviceFontsOnly );
+	$self->$_( $profile{$_} ) for qw( grayscale copies pageDevice useDeviceFonts 
+		rotate );
 	$self-> $_( @{$profile{$_}}) for qw( pageSize pageMargins resolution scale);
+	($width,$height) = ($self->{pageSize}->[0],$self->{pageSize}->[1]);
+	if ( $type == PNG ) {
+	        print "Creating PNG surface\n";
+		$self->{surface} = Cairo::ImageSurface->create( 'argb32', $width, $height );
+		$self->{cairo} = Cairo::Context->create( $self->{surface} );
+	} elsif ($type == PS) {
+		print "Creating PsSurface\n";
+		$self->{surface} = Cairo::PsSurface->create( 'test.ps', $width, $height );
+		$self->{cairo} = Cairo::Context->create( $self->{surface} );
+		$self->{surface}->dsc_begin_setup();
+		$self->{surface}->dsc_begin_page_setup();
+		$self->{surface}->dsc_comment("%%PageOrientation: Landscape");
+		my $matrix = Cairo::Matrix->init( 1, 0, 0, -1, 0,  $self->{pageSize}->[1] );
+		$self->{cairo}->transform( $matrix );
+	} else {
+	}
+	
+
+print "width: $width, height: $height\n"; 
 	$self->{localeEncoding} = [];
 	$self->set_font($profile{font});
 	return %profile;
@@ -115,6 +145,10 @@ sub pixel2point
 	my @res;
 	for( $i = 0; $i < scalar @_; $i+=2 ) {
 		my ( $x, $y ) = @_[$i, $i+1];
+		#change coordinates to Cairo system
+		#$y -= $self->{pageSize}->[1];
+		#print "CAIRO change coordinate system: $self->{pageSize}->[1]\n";
+		#print "Resolution: $self->{resolution}->[0]\n";
 		push( @res, int( $x * 7227 / $self->{resolution}->[0] + 0.5) / 100 );
 		push( @res, int( $y * 7227 / $self->{resolution}->[1] + 0.5) / 100 ) if defined $y;
 	}
@@ -168,6 +202,16 @@ sub stroke
 
 #sub begin_paint { return $_[0]->begin_doc; }
 #sub end_paint   {        $_[0]->abort_doc; }
+sub begin_doc 
+{
+	my ($self, $docName ) = @_;
+	return 0 if $self->get_paint_state;
+	$self->{canDraw} = 1;
+	
+	$docName = $::application ? $::application->name : "Prima::Cairo::Drawable"
+		unless defined $docName;
+	my $data = scalar localtime;
+}
 
 sub begin_paint_info
 {
@@ -190,11 +234,11 @@ sub color
 {
 	return $_[0]->SUPER::color unless $#_;
 	$_[0]->SUPER::color($_[1]);
+	return unless $_[0]->{canDraw};
 	#print "Color: $_[1]\n";
 	my( $r, $g, $b) = $_[0]->cmd_rgb( $_[1] );
 	#print "$r, $g, $b \n";
 	$_[0]->{cairo}->set_source_rgb($r, $g, $b);
-	return unless $_[0]->{canDraw};
 	$_[0]->{changed}->{fill} = 1;
 }
 
@@ -229,8 +273,8 @@ sub lineEnd
 {
 	return $_[0]->SUPER::lineEnd unless $#_;
 	$_[0]->SUPER::lineEnd($_[1]);
-	$_[0]->{cairo}->set_line_cap($lineCaps[$_[1]]);
 	return unless $_[0]->{canDraw};
+	$_[0]->{cairo}->set_line_cap($lineCaps[$_[1]]);
 	$_[0]->{changed}->{lineEnd} = 1;
 }
 
@@ -239,8 +283,8 @@ sub lineJoin
 {
 	return $_[0]->SUPER::lineJoin unless $#_;
 	$_[0]->SUPER::lineJoin($_[1]);
-	$_[0]->{cairo}->set_line_join($lineJoins[$_[1]]);
 	return unless $_[0]->{canDraw};
+	$_[0]->{cairo}->set_line_join($lineJoins[$_[1]]);
 	$_[0]->{changed}->{lineJoin} = 1;
 }
 
@@ -254,6 +298,7 @@ sub linePattern
 {
 	return $_[0]->SUPER::linePattern unless $#_;
 	$_[0]->SUPER::linePattern($_[1]);
+	return unless $_[0]->{canDraw};
 	my $offset = -20;
 	my @dash = ();
 	#print "Line Pattern: ";
@@ -263,7 +308,6 @@ sub linePattern
 	#print "@dash\n";
 	
 	$_[0]->{cairo}->set_dash( $offset, @dash );	
-	return unless $_[0]->{canDraw};
 	$_[0]->{changed}->{linePattern} = 1;
 }
 
@@ -271,8 +315,8 @@ sub lineWidth
 {
 	return $_[0]->SUPER::lineWidth unless $#_;
 	$_[0]->SUPER::lineWidth($_[1]);
-	$_[0]->{cairo}->set_line_width( $_[1] );
 	return unless $_[0]->{canDraw};
+	$_[0]->{cairo}->set_line_width( $_[1] );
 	$_[0]->{changed}->{lineWidth} = 1;
 }
 
@@ -288,8 +332,10 @@ sub translate
 {
 	return $_[0]->SUPER::translate unless $#_;
 	my $self = shift;
+	return unless $self->{canDraw};
 	my $context = $self->{cairo}; 
 	$self->SUPER::translate(@_);
+	print "Translate by: @_\n";
 	#$self->change_transform;
 	$context->translate($self->SUPER::translate);
 }
@@ -315,6 +361,7 @@ sub scale
 {
 	return @{$_[0]->{scale}} unless $#_;
 	my $self = shift;
+	return unless $self->{canDraw};
 	my $context = $self->{cairo};
 	$self->{scale} = [@_[0,1]];
 	#$self->change_transform;
@@ -325,6 +372,8 @@ sub rotate
 {
 	return $_[0]->{rotate} unless $#_;
 	my $self = $_[0];
+	print "Rotate by: $_[1]\n";
+	return unless $self->{canDraw};
 	my $context = $self->{cairo};
 	$self->{rotate} = $_[1];
 	#$self->change_transform;
@@ -666,9 +715,11 @@ sub rectangle
 {
 	my ( $self, $x1, $y1, $x2, $y2 ) = @_;	
 	my $context = $self->{cairo};
+	print "Input coord: $x1, $y1, $x2, $y2\n";
 	( $x1, $y1, $x2, $y2 ) = $self->pixel2point( $x1, $y1, $x2, $y2 );
 	my $width = $x2 - $x1;
 	my $height = $y2 - $y1;
+	print "Drawing rectangle x1: $x1, y1: $y1, width: $width, height: $height\n";
 	$context->rectangle( $x1, $y1, $width, $height );
 	$context->stroke(); 
 }
@@ -700,7 +751,7 @@ sub line
 	my ( $self, $x1, $y1, $x2, $y2  ) = @_;
 	my $context = $self->{cairo};
 	$context->move_to( $x1, $y1 );
-	$context->rel_line_to( $x2, $y2 );
+	$context->line_to( $x2, $y2 );
 	$context->stroke();
 }
 
@@ -712,10 +763,9 @@ sub lines
 	my $c = scalar @$array;
 	my @a = $self->pixel2point( @$array );
 	$c = int( $c / 4 ) * 4;
-	my $z = ' ';
 	for ( $i = 0; $i < $c; $i += 4 ) {
 		$context->move_to(@a[$i,$i+1]);
-		$context->rel_line_to(@a[$i+2,$i+3]);
+		$context->line_to(@a[$i+2,$i+3]);
 	}
 	$context->stroke();
 }
@@ -945,50 +995,162 @@ AGAIN:
 	$self-> {plate}-> destroy, $self-> {plate} = undef if $self-> {plate};
 }
 #
-#sub plate
-#{
-#}
-#
+my %fontmap = 
+(Prima::Application-> get_system_info-> {apc} == apc::Win32) ? (
+	'Helvetica' => 'Arial',
+	'Times'     => 'Times New Roman',
+	'Courier'   => 'Courier New',
+) : ();
+sub plate
+{
+	my $self = $_[0];
+	return $self-> {plate} if $self-> {plate};
+	return {ABC => []} if $self-> {useDeviceFontsOnly};
+	my ( $dimx, $dimy) = ( $self-> {font}-> {maximalWidth}, $self-> {font}-> {height});
+	my %f = %{$self-> {font}};
+	$f{style} &= ~(fs::Underlined|fs::StruckOut);
+	if ( $self-> {useDeviceFonts} && exists $Prima::PS::Fonts::files{$f{name}}) {
+		$f{name} =~ s/^([^-]+)\-.*$/$1/;
+		$f{pitch} = fp::Default unless $f{pitch} == fp::Fixed;
+		$f{name} = $fontmap{$f{name}} if exists $fontmap{$f{name}};
+	}
+	delete $f{size};
+	delete $f{width};
+	delete $f{direction};
+	$self-> {plate} = Prima::Image-> create(
+		type   => im::BW,
+		width  => $dimx,
+		height => $dimy,
+		font      => \%f,
+		backColor => cl::Black,
+		color     => cl::White,
+		textOutBaseline => 1,
+		preserveType => 1,
+		conversion   => ict::None,
+	);
+	my ( $f, $l) = ( $self-> {plate}-> font-> {firstChar}, $self-> {plate}-> font-> {lastChar});
+	my $x = $self-> {plate}-> {ABC} = $self-> {plate}-> get_font_abc( $f, $l);
+	my $j = (230 - $f) * 3;
+	return $self-> {plate};
+
+}
+
 #sub place_glyph
 #{
 #}
 #
-#sub get_rmap
-#{
-#}
-#
-#sub get_font_abc
-#{
-#	my( $self, $first, $last ) = @_;
-#	my $lim = ( defined ($self->{font}->{encoding}) &&
-#		exists( $Prima::PS::Encodings::fontspecific{$self->{font}->{encoding}}))
-#		? 255 : 127;
-#	$first = 0 if !defined $first || $first < 0;
-#	$first = $lim if $first > $lim;
-#	$last  = $lim if !defined $last || $last < 0 || $last > $lim;
-#	my $i;
-#	my @ret;
-#	my ( $rmap, $nd ) = $self->get_rmap;
-#	my $wmul = $self->{font}->{width} / $self->{fontWidthDivisor};
-#	for ( $i = $first; $i < $last; $i++ ) {
-#		my $cd = $rmap->[$i] || $nd;
-#		push( @ret, map{ $_ * $wmul } @$cd[1..3]);
-#	}
-#	return \@ret;	
-#}
-#
+sub get_rmap
+{
+	my @rmap;
+	my $c = $_[0]-> {font}-> {chardata};
+	my $le = $_[0]-> {localEncoding};
+	my $nd = $c-> {'.notdef'};
+	my $fs = $_[0]-> {font}-> {height} / $_[0]-> {fontCharHeight};
+	if ( defined $nd ) {
+		$nd = [ @$nd ];
+		$$nd[$_] *= $fs for 1..3;
+	} else {
+		$nd = [0,0,0,0];
+	}
+	my ( $f, $l) = ( $_[0]-> {font}-> {firstChar}, $_[0]-> {font}-> {lastChar});
+	my $i;
+	my $abc;
+	if ( $_[0]-> {typeFontMap}-> {$_[0]-> {font}-> {name}} == 1) {
+		for ( $i = 0; $i < 255; $i++) {
+			if (( $le-> [$i] ne '.notdef') && $c-> { $le-> [ $i]}) {
+				$rmap[$i] = [ $i, map { $_ * $fs } @{$c-> { $le-> [ $i]}}[1..3]];
+			} elsif ( $i >= $f && $i <= $l) {
+				$abc = $_[0]-> plate-> {ABC} unless $abc; 
+				my $j = ( $i - $f) * 3; 
+				$rmap[$i] = [ $i, @$abc[ $j .. $j + 2]];   
+			}
+		}
+	} else {
+		$abc = $_[0]-> plate-> {ABC};
+		for ( $i = $f; $i <= $l; $i++) {
+			my $j = ( $i - $f) * 3;
+			$rmap[$i] = [ $i, @$abc[ $j .. $j + 2]];
+		}
+	}
+#  @rmap = map { $c-> {$_} } @{$_[0]-> {localeEncoding}};
+	
+	return \@rmap, $nd;
+
+}
+
+sub get_font_abc
+{
+	my( $self, $first, $last ) = @_;
+	my $lim = ( defined ($self->{font}->{encoding}) &&
+		exists( $Prima::PS::Encodings::fontspecific{$self->{font}->{encoding}}))
+		? 255 : 127;
+	$first = 0 if !defined $first || $first < 0;
+	$first = $lim if $first > $lim;
+	$last  = $lim if !defined $last || $last < 0 || $last > $lim;
+	my $i;
+	my @ret;
+	my ( $rmap, $nd ) = $self->get_rmap;
+	my $wmul = $self->{font}->{width} / $self->{fontWidthDivisor};
+	for ( $i = $first; $i < $last; $i++ ) {
+		my $cd = $rmap->[$i] || $nd;
+		push( @ret, map{ $_ * $wmul } @$cd[1..3]);
+	}
+	return \@ret;	
+}
+
 sub get_text_width
 {
 	my ( $self, $text, $addOverhang ) = @_;
 	my $i;
 	my $len = length $text;
 	my $context = $self->{cairo};
+	my $name  = $self->{font}->{name};
 	return 0 unless $len;
-#	$context->select_font_face( name, style, weight );
+#	$context->select_font_face( $name, style, weight );
 #	$context->set_font_size( size );	
 #	my ($y_bearing, $width, $height) = $context->text_extents(text);
 #	$context->restore();
 #	return $width;
+}
+
+sub get_text_box
+{
+	my ( $self, $text ) = @_;
+	#my ( $rmap, $nd ) = $self->get_rmap;
+	my $len = length $text;
+	return [ (0) x 10 ] unless $len;
+	my $cd;
+	my $context = $self->{cairo};
+	my $fontsize = $self->{font}->{size};
+	my $exts;
+	my $name  = $self->{font}->{name};
+	my $angle = $self->{font}->{direction};
+	my $size  = $self->{font}->{size};
+	my $style  = $self->{font}->{style};
+	my @slants = ('normal', 'italic', 'oblique');
+	my @weight = ('normal', 'bold');
+	
+	if ($text eq ' ') {
+		$exts->{y_bearing} = 0;
+		$exts->{x_bearing} = 0;
+		$exts->{x_advance} = 0;
+		$exts->{width} = 0;
+		$exts->{height} = $fontsize;
+	} else {
+		$context->select_font_face(
+			$name, $slants[1], $weight[1]
+		);
+		$context->set_font_size($fontsize);
+		$exts = $context->text_extents($text);
+	}
+	my @ret = (
+		0, $self->{font}->{ascent}-1,
+		0, $self->{font}->{descent},	
+		$exts->{width}+$exts->{x_bearing}, $self->{font}->{ascent}-1,
+		$exts->{width}+$exts->{x_bearing}, -$self->{font}->{descent},
+		$exts->{width}, 0
+	);
+	return \@ret;
 }
 
 # helper functions
@@ -997,6 +1159,27 @@ sub save_to_png
 	my ( $self, $filename ) = @_;
 	my $surface = $self->{surface};
 	$surface->write_to_png($filename);
+}
+
+sub save_to_eps
+{
+	my ( $self, $filename ) = @_;
+print "Page height: $self->{pageSize}->[0], Page width: $self->{pageSize}->[1]\n";
+	my $surface = $self->{surface};
+	my $cr = $self->{cairo};
+#	$cr->rectangle (20, 20, 40, 40);
+#	$cr->set_line_width(7);
+#	$cr->stroke();
+#$cr->set_source_rgb (1, 1, 0);
+#$cr->fill;
+## 
+#$cr->rectangle (50, 50, 40, 40);
+#$cr->stroke();
+#$cr->set_source_rgb (1, 1, 1);
+#$cr->fill;
+	$cr->show_page;
+	$surface->set_eps(1);
+	
 }
 
 1;

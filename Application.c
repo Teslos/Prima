@@ -56,7 +56,7 @@ Application_init( Handle self, HV * profile)
    char * hintClass      = pget_c( hintClass);
    if ( application != nilHandle) 
       croak( "RTC0010: Attempt to create more than one application instance");
-
+   printf("Application init\n");
    CDrawable-> init( self, profile);
    list_create( &var->  widgets, 16, 16);
    list_create( &var->  modalHorizons, 0, 8);

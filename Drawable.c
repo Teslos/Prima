@@ -59,6 +59,7 @@ extern "C" {
 void
 Drawable_init( Handle self, HV * profile)
 {
+   printf("Drawable initialized\n");
    dPROFILE;
    inherited init( self, profile);
    apc_gp_init( self);
@@ -348,7 +349,7 @@ Drawable_get_font_abc( Handle self, int first, int last, Bool unicode)
    int i;
    AV * av;
    PFontABC abc;
-
+   printf( "Drawable: get_font_abc\n" );
    if ( first < 0) first = 0;
    if ( last  < 0) last  = 255;
    if ( !unicode) {
@@ -885,7 +886,6 @@ static PFontABC
 query_abc_range( Handle self, TextWrapRec * t, unsigned int base)
 {
    PFontABC abc;
-
    /* find if present in cache */
    if ( t-> utf8_text) {
       if ( *(t-> unicode)) {
@@ -896,9 +896,9 @@ query_abc_range( Handle self, TextWrapRec * t, unsigned int base)
                if (( unsigned int) p-> items[ i] == base)
                   return ( PFontABC) p-> items[i + 1];
       }
-   } else
+   } else {
       if ( *( t-> ascii)) return *(t-> ascii);
-
+   }
    /* query ABC information */
    if ( !self) {
       abc = apc_gp_get_font_abc( self, base * 256, base * 256 + 255, t-> utf8_text);
@@ -933,6 +933,7 @@ query_abc_range( Handle self, TextWrapRec * t, unsigned int base)
       sv_free( sv);
    }
 
+   printf("query_abc_range\n");
    /* store in cache */
    if ( t-> utf8_text) {
       PList p;
@@ -1055,12 +1056,16 @@ Drawable_do_text_wrap( Handle self, TextWrapRec * t)
 #endif
          i += len;
 	 if ( len == 0 ) break;
-      } else
-         uv = (( unsigned char *)(t-> text))[i++];
-
-      if ( uv / 256 != base) 
+      } else {
+    printf("I am in the do_text_wrap : %c\n",(t-> text)[i++]);
+         uv = ( unsigned char )((t-> text)[i++]);
+         //uv = (t-> text)[i++];
+	}
+      if ( uv / 256 != base){ 
+	 printf(" do_text_wrap ; %c\n", uv);
          if ( !precalc_abc_buffer( query_abc_range( self, t, base = uv / 256), width, abc))
             return ret;
+      }
       if ( reassign_w) w = abc[ uv & 0xff]. a;
       reassign_w = 0;
       
@@ -1162,7 +1167,6 @@ Drawable_do_text_wrap( Handle self, TextWrapRec * t)
       } else
          w += winc;
    }
-
    /* adding or skipping last line */
    if ( t-> textLen - start > 0 || t-> count == 0) lAdd( t-> textLen, t-> utf8_textLen);
     
@@ -1224,8 +1228,10 @@ Drawable_text_wrap( Handle self, SV * text, int width, int options, int tabInden
    STRLEN tlen;
 
    t. text      = SvPV( text, tlen);
+   printf("Text passed to text_wrap: %s\n",t. text); 
    t. utf8_text = prima_is_utf8_sv( text);
    if ( t. utf8_text) {
+      printf("UTF text\n");
       t. utf8_textLen = prima_utf8_length( t. text);
       t. textLen = utf8_hop(( U8*) t. text, t. utf8_textLen) - (U8*) t. text; 
    } else {
@@ -1238,8 +1244,13 @@ Drawable_text_wrap( Handle self, SV * text, int width, int options, int tabInden
    t. ascii     = &var-> font_abc_ascii;
    t. unicode   = &var-> font_abc_unicode;
    t. t_char    = nil;
-
+   printf("Text width: %i\n", t. width);
+   printf("Text tabIndent: %i\n", t. tabIndent);
+   printf("Text options: %i\n", t. options);
+   printf("Text ascii: %lu\n", *(t. ascii));
+   printf("Handle: %lu\n",self);
    c = Drawable_do_text_wrap( self, &t);
+   printf("Manage to get to do_text_wrap\n");
 
    if (( t. options & twReturnFirstLineLength) == twReturnFirstLineLength) {
       IV rlen = 0;
